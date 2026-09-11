@@ -39,14 +39,19 @@ const driverSchema = new mongoose.Schema({
     uppercase: true,
     trim: true
   },
+  driverImage: {
+    type: String,
+    required: false
+  },
   idProof: {
     type: String,
     required: true
   },
   status: {
     type: String,
-    enum: ['pending', 'approved', 'rejected'],
     default: 'pending'
+    // Note: Status validation is now handled dynamically via the Status model
+    // Removed enum constraint to allow dynamic statuses from database
   },
   fcmToken: {
     type: String,

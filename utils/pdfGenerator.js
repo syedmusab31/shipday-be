@@ -15,7 +15,7 @@ const drawBox = (doc, x, y, width, height, title) => {
     return y + 25; // Return content start Y
 };
 
-const drawBarcode = (doc, x, y, text, scale = 1.2, height = 35) => {
+const drawBarcode = (doc, x, y, text, scale = 1.0, height = 35) => {
     const patterns = [
         "212222", "222122", "222221", "121223", "121322", "131222", "122213", "122312", "132212", "221213",
         "221312", "231212", "112232", "122132", "122231", "113222", "123122", "123221", "223211", "221132",
@@ -31,6 +31,7 @@ const drawBarcode = (doc, x, y, text, scale = 1.2, height = 35) => {
     ];
 
     let currentX = x;
+    let totalWidth = 0;
     doc.fillColor('#000000');
 
     // Start B
@@ -39,6 +40,7 @@ const drawBarcode = (doc, x, y, text, scale = 1.2, height = 35) => {
         const w = parseInt(startPattern[i]) * scale;
         if (i % 2 === 0) doc.rect(currentX, y, w, height).fill();
         currentX += w;
+        totalWidth += w;
     }
 
     let checksum = 104;
@@ -50,6 +52,7 @@ const drawBarcode = (doc, x, y, text, scale = 1.2, height = 35) => {
             const w = parseInt(pattern[j]) * scale;
             if (j % 2 === 0) doc.rect(currentX, y, w, height).fill();
             currentX += w;
+            totalWidth += w;
         }
         checksum += val * (i + 1);
     }
@@ -60,6 +63,7 @@ const drawBarcode = (doc, x, y, text, scale = 1.2, height = 35) => {
         const w = parseInt(checkPattern[i]) * scale;
         if (i % 2 === 0) doc.rect(currentX, y, w, height).fill();
         currentX += w;
+        totalWidth += w;
     }
 
     // Stop
@@ -68,10 +72,19 @@ const drawBarcode = (doc, x, y, text, scale = 1.2, height = 35) => {
         const w = parseInt(stopPattern[i]) * scale;
         if (i % 2 === 0) doc.rect(currentX, y, w, height).fill();
         currentX += w;
+        totalWidth += w;
     }
+    
+    return totalWidth;
 };
 
 const generateWaybill = (shipment, res) => {
+    // Helper to clean "N/A" values
+    const cleanVal = (val) => {
+        if (!val || val === 'N/A' || val === 'n/a' || val === 'NA' || val === 'na') return '-';
+        return val;
+    };
+
     // A5 Landscape: ~595 x 420 pts
     const doc = new PDFDocument({ margin: 15, size: 'A5', layout: 'landscape' });
 
@@ -101,10 +114,18 @@ const generateWaybill = (shipment, res) => {
         doc.image(logoPNG, 20, 15, { width: 100 });
     }
 
-    // Centered Barcode and ID
+    // Centered Barcode and ID — use dedicated barcode field (falls back to shipmentId for legacy records)
     const sId = shipment.shipmentId || 'SD-UNKNOWN';
-    drawBarcode(doc, 195, 15, sId, 1.0, 30);
-    doc.fillColor('#000000').font('Helvetica-Bold').fontSize(10).text(sId, 140, 48, { align: 'center', width: 320 });
+    const barcodeValue = shipment.barcode || sId;
+    const centerX = 297;
+    
+    const barcodeWidth = drawBarcode(doc, centerX - 75, 15, barcodeValue, 1.0, 30);
+    const barcodeStartX = centerX - 75;
+    
+    doc.fillColor('#000000').font('Helvetica-Bold').fontSize(10);
+    const textWidth = doc.widthOfString(barcodeValue);
+    const textX = barcodeStartX + (barcodeWidth / 2) - (textWidth / 2);
+    doc.text(barcodeValue, textX, 50);
 
     // Right Side Labels
     doc.font('Helvetica-Bold').fontSize(24).text('WAYBILL', 430, 20, { align: 'right' });
@@ -122,52 +143,33 @@ const generateWaybill = (shipment, res) => {
     drawSectionBody(20, row1Y + 15, colWidth, row1Height);
 
     const sender = shipment.senderDetails || { fullName: shipment.senderName, mobile: shipment.senderPhone, address: { city: shipment.start } };
+    const collection = shipment.collectionDetails || {};
     doc.font('Helvetica').fontSize(8).fillColor('#000000');
     let textY = row1Y + 21;
+    const colStartX = 25;
+    const colTextWidth = colWidth - 10;
 
     // Full name
-    doc.font('Helvetica-Bold').fillColor('#000000').text(sender.fullName || 'Name missing', 25, textY);
+    doc.font('Helvetica-Bold').fillColor('#000000').text(cleanVal(sender.fullName), colStartX, textY, { width: colTextWidth, align: 'center' });
 
-    // Business name (company)
-    if (sender.company) {
-        doc.font('Helvetica-Bold').fillColor('#000000').text(sender.company, 25, textY + 10);
-    } else {
-        doc.font('Helvetica-Bold').fillColor('#cc0000').text('Business name missing', 25, textY + 10);
+    // Business name
+    const senderCompany = cleanVal(sender.company || collection.company);
+    if (senderCompany && senderCompany !== '-') {
+        doc.font('Helvetica-Bold').fillColor('#000000').text(senderCompany, colStartX, textY + 10, { width: colTextWidth, align: 'center' });
     }
     doc.fillColor('#000000');
 
     // Mobile
-    doc.font('Helvetica').text(sender.mobile || 'Phone missing', 25, textY + 20);
+    doc.font('Helvetica').text(cleanVal(sender.mobile), colStartX, textY + 20, { width: colTextWidth, align: 'center' });
 
     // Email
-    if (sender.email) {
-        doc.fillColor('#000000').text(sender.email, 25, textY + 30);
-    } else {
-        doc.fillColor('#cc0000').text('Email address missing', 25, textY + 30);
-    }
-    doc.fillColor('#000000');
+    doc.text(cleanVal(sender.email), colStartX, textY + 30, { width: colTextWidth, align: 'center' });
 
     if (sender.address) {
-        // Street
-        if (sender.address.street) {
-            doc.text(sender.address.street, 25, textY + 40);
-        } else {
-            doc.fillColor('#cc0000').text('Sender address missing', 25, textY + 40);
-            doc.fillColor('#000000');
-        }
-        const addrLine2 = `${sender.address.suburb || ''}, ${sender.address.city || ''}`.replace(/^, /, '').trim();
-        doc.text(addrLine2 === ',' ? '' : addrLine2, 25, textY + 50);
-        const province = sender.address.province || '';
-        const postalCode = sender.address.postalCode || '';
-        if (province || postalCode) {
-            doc.text(`${province} ${postalCode}`.trim(), 25, textY + 60);
-        } else {
-            doc.fillColor('#cc0000').text('Sender postal code and province missing', 25, textY + 60);
-            doc.fillColor('#000000');
-        }
-    } else {
-        doc.fillColor('#cc0000').text('Sender address missing', 25, textY + 40);
-        doc.fillColor('#000000');
+        doc.text(cleanVal(sender.address.street), colStartX, textY + 40, { width: colTextWidth, align: 'center' });
+        const addrLine2 = `${cleanVal(sender.address.suburb)}, ${cleanVal(sender.address.city)}`.replace(/^, |-|-, /g, '').trim();
+        doc.text(addrLine2 === ',' ? '' : addrLine2, colStartX, textY + 50, { width: colTextWidth, align: 'center' });
+        doc.text(`${cleanVal(sender.address.province)} ${cleanVal(sender.address.postalCode)}`.replace(/^- -$/g, '').trim(), colStartX, textY + 60, { width: colTextWidth, align: 'center' });
     }
 
     // COL 2: RECEIVER
@@ -176,51 +178,23 @@ const generateWaybill = (shipment, res) => {
 
     const receiver = shipment.deliveryDetails || { receiverName: shipment.receiverName, mobile: shipment.receiverPhone, address: { city: shipment.end } };
     textY = row1Y + 21;
-    const rX = 20 + colWidth + 5;
+    const rStartX = 20 + colWidth + 5;
+    const rTextWidth = colWidth - 10;
 
-    // Receiver full name
-    doc.font('Helvetica-Bold').fillColor('#000000').text(receiver.receiverName || 'Name missing', rX, textY, { align: 'center', width: colWidth - 10 });
+    doc.font('Helvetica-Bold').fillColor('#000000').text(cleanVal(receiver.receiverName), rStartX, textY, { width: rTextWidth, align: 'center' });
 
-    // Receiver business name
-    if (receiver.company) {
-        doc.font('Helvetica-Bold').fillColor('#000000').text(receiver.company, rX, textY + 10, { align: 'center', width: colWidth - 10 });
-    } else {
-        doc.font('Helvetica-Bold').fillColor('#cc0000').text('Receiver business name missing', rX, textY + 10, { align: 'center', width: colWidth - 10 });
+    if (receiver.company && receiver.company !== 'N/A') {
+        doc.font('Helvetica-Bold').fillColor('#000000').text(cleanVal(receiver.company), rStartX, textY + 10, { width: rTextWidth, align: 'center' });
     }
-    doc.fillColor('#000000');
 
-    // Mobile
-    doc.font('Helvetica').text(receiver.mobile || 'Phone missing', rX, textY + 20, { align: 'center', width: colWidth - 10 });
-
-    // Email
-    if (receiver.email) {
-        doc.fillColor('#000000').text(receiver.email, rX, textY + 30, { align: 'center', width: colWidth - 10 });
-    } else {
-        doc.fillColor('#cc0000').text('email address missing', rX, textY + 30, { align: 'center', width: colWidth - 10 });
-    }
-    doc.fillColor('#000000');
+    doc.font('Helvetica').text(cleanVal(receiver.mobile), rStartX, textY + 20, { width: rTextWidth, align: 'center' });
+    doc.text(cleanVal(receiver.email), rStartX, textY + 30, { width: rTextWidth, align: 'center' });
 
     if (receiver.address) {
-        // Street
-        if (receiver.address.street) {
-            doc.text(receiver.address.street, rX, textY + 40, { align: 'center', width: colWidth - 10 });
-        } else {
-            doc.fillColor('#cc0000').text('Customer address missing', rX, textY + 40, { align: 'center', width: colWidth - 10 });
-            doc.fillColor('#000000');
-        }
-        const rAddr2 = `${receiver.address.city || ''}`;
-        doc.text(rAddr2 || '', rX, textY + 50, { align: 'center', width: colWidth - 10 });
-        const rProvince = receiver.address.province || '';
-        const rPostal = receiver.address.postalCode || '';
-        if (rProvince || rPostal) {
-            doc.text(`${rProvince} ${rPostal}`.trim(), rX, textY + 60, { align: 'center', width: colWidth - 10 });
-        } else {
-            doc.fillColor('#cc0000').text('province missing & postal code missing', rX, textY + 60, { align: 'center', width: colWidth - 10 });
-            doc.fillColor('#000000');
-        }
-    } else {
-        doc.fillColor('#cc0000').text('Customer address missing', rX, textY + 40, { align: 'center', width: colWidth - 10 });
-        doc.fillColor('#000000');
+        doc.text(cleanVal(receiver.address.street), rStartX, textY + 40, { width: rTextWidth, align: 'center' });
+        const rAddr2 = `${cleanVal(receiver.address.suburb)}, ${cleanVal(receiver.address.city)}`.replace(/^, |-|-, /g, '').trim();
+        doc.text(rAddr2 === ',' ? '' : rAddr2, rStartX, textY + 50, { width: rTextWidth, align: 'center' });
+        doc.text(`${cleanVal(receiver.address.province)} ${cleanVal(receiver.address.postalCode)}`.replace(/^- -$/g, '').trim(), rStartX, textY + 60, { width: rTextWidth, align: 'center' });
     }
 
     // COL 3: SERVICE
@@ -231,19 +205,38 @@ const generateWaybill = (shipment, res) => {
     textY = row1Y + 21;
     const parcel = shipment.parcelDetails || { serviceType: 'Standard', parcelType: shipment.packageType, dimensions: { weight: shipment.parcelWeight } };
 
-    const drawLabelVal = (lbl, val, y) => {
-        doc.fillColor('#000000').font('Helvetica-Bold').text(lbl, sX, y, { width: 40 });
-        doc.font('Helvetica').text(val || '-', sX + 45, y);
+    // Handle dimensions as array or single object
+    const dimsArray = Array.isArray(parcel.dimensions) ? parcel.dimensions : [parcel.dimensions].filter(Boolean);
+    const firstDim = dimsArray[0] || {};
+    const totalWeight = dimsArray.reduce((sum, d) => sum + (parseFloat(d.weight) || 0), 0);
+    const numBoxes = dimsArray.length > 0 ? dimsArray.length : (shipment.numberOfBoxes || 1);
+
+    doc.fillColor('#000000').font('Helvetica-Bold').text('Service:', sX, textY);
+    doc.font('Helvetica').text((parcel.serviceType || 'ECONOMY').toUpperCase(), sX + 50, textY);
+    
+    doc.font('Helvetica-Bold').text('Type:', sX, textY + 12);
+    const parcelTypeDisplay = (parcel.parcelType || 'Parcel').toUpperCase();
+    doc.font('Helvetica').text(parcelTypeDisplay, sX + 50, textY + 12);
+    
+    doc.font('Helvetica-Bold').text('Weight:', sX, textY + 24);
+    doc.font('Helvetica').text(`${totalWeight > 0 ? totalWeight.toFixed(1) : (shipment.parcelWeight || 0)} kg`, sX + 50, textY + 24);
+    
+    if (firstDim.length && firstDim.width && firstDim.height) {
+        if (dimsArray.length === 1) {
+            doc.font('Helvetica-Bold').text('Dims:', sX, textY + 36);
+            doc.font('Helvetica').text(`${firstDim.length}x${firstDim.width}x${firstDim.height} cm`, sX + 50, textY + 36);
+        } else {
+            doc.font('Helvetica-Bold').text('Dims:', sX, textY + 36);
+            doc.font('Helvetica').text(`${dimsArray.length} boxes`, sX + 50, textY + 36);
+        }
     }
-    drawLabelVal('Service:', (parcel.serviceType || 'ECONOMY').toUpperCase(), textY);
-    drawLabelVal('Type:', (parcel.parcelType || 'Parcel').toUpperCase(), textY + 12);
-    drawLabelVal('Weight:', `${parcel.dimensions?.weight || shipment.parcelWeight || 0} kg`, textY + 24);
-    if (parcel.dimensions?.length) {
-        drawLabelVal('Dims:', `${parcel.dimensions.length}x${parcel.dimensions.width}x${parcel.dimensions.height}`, textY + 36);
-        doc.text('Carrier: Shipday Courier', sX, textY + 48, { width: colWidth - 10 });
-    } else {
-        doc.text('Carrier: Shipday Courier', sX, textY + 36, { width: colWidth - 10 });
-    }
+    
+    const dimsLine = firstDim.length && firstDim.width && firstDim.height ? 12 : 0;
+    doc.font('Helvetica-Bold').text('Qty:', sX, textY + 36 + dimsLine);
+    doc.font('Helvetica').text(`${numBoxes}`, sX + 50, textY + 36 + dimsLine);
+    
+    doc.font('Helvetica-Bold').text('Carrier:', sX, textY + 48 + dimsLine);
+    doc.font('Helvetica').text('Shipday Courier', sX + 50, textY + 48 + dimsLine);
 
 
     // ================= ROW 2 [Y: ~185 - 235] =================
@@ -253,7 +246,7 @@ const generateWaybill = (shipment, res) => {
     // COL 1: INSTRUCTIONS
     drawSectionHeader(20, row2Y, colWidth, 'INSTRUCTIONS');
     drawSectionBody(20, row2Y + 15, colWidth, row2Height);
-    doc.fillColor('#000000').font('Helvetica-Bold').fontSize(7).text(parcel.specialInstructions || 'None', 25, row2Y + 20, { width: colWidth - 10 });
+    doc.fillColor('#000000').font('Helvetica-Bold').fontSize(7).text(parcel.specialInstructions || 'None', 25, row2Y + 20, { width: colWidth - 10, lineGap: 2 });
 
     // COL 2: PAYMENT
     drawSectionHeader(20 + colWidth, row2Y, colWidth - 40, 'PAYMENT INFO');
@@ -263,8 +256,11 @@ const generateWaybill = (shipment, res) => {
     doc.font('Helvetica-Bold').fontSize(8).text('Method:', 20 + colWidth + 5, row2Y + 21);
     doc.font('Helvetica').text((pay.method || 'Account').toUpperCase(), 20 + colWidth + 50, row2Y + 21);
 
-    doc.font('Helvetica-Bold').text('Status:', 20 + colWidth + 5, row2Y + 32);
-    doc.font('Helvetica').text((pay.status || 'Pending').toUpperCase(), 20 + colWidth + 50, row2Y + 32);
+    doc.font('Helvetica-Bold').text('Amount:', 20 + colWidth + 5, row2Y + 32);
+    doc.font('Helvetica').text(`R ${(pay.amount || shipment.cost || 0).toFixed(2)}`, 20 + colWidth + 50, row2Y + 32);
+
+    doc.font('Helvetica-Bold').text('Status:', 20 + colWidth + 5, row2Y + 43);
+    doc.font('Helvetica').text((pay.status || 'Pending').toUpperCase(), 20 + colWidth + 50, row2Y + 43);
 
     // COL 3: REF
     const col3X = 20 + colWidth + (colWidth - 40);
@@ -273,52 +269,84 @@ const generateWaybill = (shipment, res) => {
     drawSectionBody(col3X, row2Y + 15, col3W, row2Height);
 
     let refY = row2Y + 21;
+    const mStartX = col3X + 5;
+    const mTextWidth = col3W - 10;
 
-    // Order number (show prominently)
-    if (shipment.orderNumber) {
-        doc.font('Helvetica-Bold').fontSize(8).text(`Order: ${shipment.orderNumber}`, col3X + 5, refY);
-    } else {
-        doc.font('Helvetica-Bold').fontSize(8).fillColor('#cc0000').text('Order number missing', col3X + 5, refY);
-        doc.fillColor('#000000');
-    }
+    // Order number
+    const orderNum = cleanVal(shipment.orderNumber);
+    doc.fillColor('#000000').font('Helvetica-Bold').fontSize(8).text(`Order: ${orderNum}`, mStartX, refY, { width: mTextWidth, align: 'center' });
 
     // Ref
-    doc.font('Helvetica').fontSize(8).text(`Ref: ${shipment.shipmentId || '-'}`, col3X + 5, refY + 11);
+    doc.font('Helvetica').fontSize(8).text(`Ref: ${shipment.shipmentId || '-'}`, mStartX, refY + 11, { width: mTextWidth, align: 'center' });
 
     // Marketplace name
-    if (shipment.marketplaceName) {
-        doc.text(`Market: ${shipment.marketplaceName}`, col3X + 5, refY + 22);
-    } else {
-        doc.fillColor('#cc0000').text('Marketplace name missing', col3X + 5, refY + 22);
-        doc.fillColor('#000000');
-    }
+    const marketName = cleanVal(shipment.marketplaceName);
+    doc.text(`Market: ${marketName}`, mStartX, refY + 22, { width: mTextWidth, align: 'center' });
 
 
-    // ================= PROOF OF DELIVERY [Y: ~245 - 305] =================
+    // ================= DELIVERY DETAILS [Y: ~245 - 305] =================
     const podY = row2Y + 15 + row2Height + 10;
-    const podHeight = 65;
+    const podHeight = 70;
     const pageWidth = 595 - 30; // 565
 
-    drawSectionHeader(20, podY, pageWidth, 'Proof of Delivery');
+    drawSectionHeader(20, podY, pageWidth, 'Delivery Details');
     drawSectionBody(20, podY + 15, pageWidth, podHeight);
 
-    const midPoint = 20 + (pageWidth / 2);
+    const halfWidth = pageWidth / 2;
+    const col1X = 20;
+    const col2X = 20 + halfWidth;
+    const contentStartY = podY + 18;
+    const colPadding = 8;
+    const rowHeight = 16;
+    const signatureRowHeight = 28;
 
-    // Vertical line in middle
-    doc.lineWidth(0.5).moveTo(midPoint, podY + 15).lineTo(midPoint, podY + 15 + podHeight).stroke();
+    // Draw column headers
+    doc.fillColor('#e8e8e8').rect(col1X + 1, contentStartY, halfWidth - 2, 12).fill();
+    doc.fillColor('#e8e8e8').rect(col2X + 1, contentStartY, halfWidth - 2, 12).fill();
 
-    // POD Labels
-    doc.fillColor('#4a5568').font('Helvetica-Bold').fontSize(11);
-    doc.text('Sender Details', 20, podY + 20, { width: pageWidth / 2, align: 'center' });
-    doc.text('Reciever Details', midPoint, podY + 20, { width: pageWidth / 2, align: 'center' });
+    doc.fillColor('#000000').font('Helvetica-Bold').fontSize(7);
+    doc.text('DISPATCH/COLLECTION INFO', col1X + colPadding, contentStartY + 3, { width: halfWidth - colPadding * 2, align: 'center' });
+    doc.text('RECEIVER DELIVERY INFO', col2X + colPadding, contentStartY + 3, { width: halfWidth - colPadding * 2, align: 'center' });
 
-    doc.fillColor('#a0aec0').fontSize(12);
-    doc.text('NAME', 20, podY + 35, { width: pageWidth / 2, align: 'center' });
-    doc.text('NAME', midPoint, podY + 35, { width: pageWidth / 2, align: 'center' });
+    const nameRowY = contentStartY + 14;
 
-    doc.fontSize(9);
-    doc.text('SENDER SIGNATURE', 20, podY + 52, { width: pageWidth / 2, align: 'center' });
-    doc.text('RECEIVER SIGNATURE', midPoint, podY + 52, { width: pageWidth / 2, align: 'center' });
+    // === LEFT COLUMN: DISPATCH ===
+    // Row 1: Name
+    doc.fillColor('#ffffff').rect(col1X + 1, nameRowY, halfWidth - 2, rowHeight).fill();
+    doc.rect(col1X + 1, nameRowY, halfWidth - 2, rowHeight).stroke();
+    doc.fillColor('#000000').font('Helvetica-Bold').fontSize(7).text('Name:', col1X + colPadding, nameRowY + 5, { width: 40 });
+    doc.font('Helvetica').fontSize(7);
+    doc.text(cleanVal(shipment.senderDetails?.fullName || shipment.senderName), col1X + colPadding + 35, nameRowY + 5, { width: halfWidth - colPadding * 2 - 35 });
+
+    // Row 2: Signature
+    const sigRowY = nameRowY + rowHeight;
+    doc.fillColor('#ffffff').rect(col1X + 1, sigRowY, halfWidth - 2, signatureRowHeight).fill();
+    doc.rect(col1X + 1, sigRowY, halfWidth - 2, signatureRowHeight).stroke();
+    doc.fillColor('#000000').font('Helvetica-Bold').fontSize(7).text('Signature:', col1X + colPadding, sigRowY + 5, { width: halfWidth - colPadding * 2 });
+
+    // Row 3: Date
+    const dateRowY = sigRowY + signatureRowHeight;
+    doc.fillColor('#ffffff').rect(col1X + 1, dateRowY, halfWidth - 2, rowHeight).fill();
+    doc.rect(col1X + 1, dateRowY, halfWidth - 2, rowHeight).stroke();
+    doc.fillColor('#000000').font('Helvetica-Bold').fontSize(7).text('Date:', col1X + colPadding, dateRowY + 5, { width: halfWidth - colPadding * 2 });
+
+    // === RIGHT COLUMN: RECEIVER ===
+    // Row 1: Name
+    doc.fillColor('#ffffff').rect(col2X + 1, nameRowY, halfWidth - 2, rowHeight).fill();
+    doc.rect(col2X + 1, nameRowY, halfWidth - 2, rowHeight).stroke();
+    doc.fillColor('#000000').font('Helvetica-Bold').fontSize(7).text('Name:', col2X + colPadding, nameRowY + 5, { width: 40 });
+    doc.font('Helvetica').fontSize(7);
+    doc.text(cleanVal(shipment.deliveryDetails?.receiverName || shipment.receiverName), col2X + colPadding + 35, nameRowY + 5, { width: halfWidth - colPadding * 2 - 35 });
+
+    // Row 2: Signature
+    doc.fillColor('#ffffff').rect(col2X + 1, sigRowY, halfWidth - 2, signatureRowHeight).fill();
+    doc.rect(col2X + 1, sigRowY, halfWidth - 2, signatureRowHeight).stroke();
+    doc.fillColor('#000000').font('Helvetica-Bold').fontSize(7).text('Signature:', col2X + colPadding, sigRowY + 5, { width: halfWidth - colPadding * 2 });
+
+    // Row 3: Date
+    doc.fillColor('#ffffff').rect(col2X + 1, dateRowY, halfWidth - 2, rowHeight).fill();
+    doc.rect(col2X + 1, dateRowY, halfWidth - 2, rowHeight).stroke();
+    doc.fillColor('#000000').font('Helvetica-Bold').fontSize(7).text('Date:', col2X + colPadding, dateRowY + 5, { width: halfWidth - colPadding * 2 });
 
     doc.end();
 };

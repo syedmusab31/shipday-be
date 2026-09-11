@@ -2,6 +2,7 @@ const Driver = require('../models/Driver');
 const Notification = require('../models/Notification');
 const Shipment = require('../models/Shipment');
 const Order = require('../models/Order');
+const Status = require('../models/Status');
 // Trigger server restart for logic update
 const { sendPushNotification } = require('../utils/pushNotification');
 const { sendShipmentStatusEmail } = require('../utils/shipmentEmailTemplates');
@@ -57,9 +58,23 @@ const getAllDrivers = async (req, res) => {
 const updateDriverStatus = async (req, res) => {
   const { driverId, status } = req.body;
 
+  if (!driverId || !status) {
+    return res.status(400).json({ message: 'Valid driverId and status are required' });
+  }
 
-  if (!driverId || !['approved', 'rejected'].includes(status)) {
-    return res.status(400).json({ message: 'Valid driverId and status (approved/rejected) required' });
+  // Try to get valid driver statuses from database
+  let allowedStatuses = ['approved', 'rejected']; // fallback
+  try {
+    const statusDocs = await Status.find({ type: 'driver', isActive: true });
+    if (statusDocs.length > 0) {
+      allowedStatuses = statusDocs.map(s => s.name);
+    }
+  } catch (dbErr) {
+    console.log('Could not fetch driver statuses from database, using fallback');
+  }
+
+  if (!allowedStatuses.includes(status)) {
+    return res.status(400).json({ message: `Invalid status. Allowed statuses: ${allowedStatuses.join(', ')}` });
   }
 
   try {
@@ -106,6 +121,53 @@ const updateDriverStatus = async (req, res) => {
   }
 };
 
+// Update driver details
+const updateDriverDetails = async (req, res) => {
+  const { driverId, username, email, phone, vehicleType, vehicleNumber, driverImage } = req.body;
+
+  if (!driverId) {
+    return res.status(400).json({ message: 'Driver ID is required' });
+  }
+
+  try {
+    // First check if driver exists
+    const existingDriver = await Driver.findOne({ driverId });
+    if (!existingDriver) {
+      return res.status(404).json({ message: 'Driver not found' });
+    }
+
+    // Build update object with only provided fields
+    const updateData = {};
+    if (username) updateData.username = username;
+    if (email) updateData.email = email;
+    if (phone) updateData.phone = phone;
+    if (vehicleType) updateData.vehicleType = vehicleType;
+    if (vehicleNumber) updateData.vehicleNumber = vehicleNumber.toUpperCase();
+    
+    // Handle file upload for driver image
+    if (req.file) {
+      updateData.driverImage = req.file.path;
+    } else if (driverImage) {
+      updateData.driverImage = driverImage;
+    }
+
+    // Update the driver
+    const driver = await Driver.findOneAndUpdate(
+      { driverId },
+      updateData,
+      { new: true }
+    ).select('-password');
+
+    res.status(200).json({
+      message: 'Driver details updated successfully',
+      driver
+    });
+  } catch (err) {
+    console.error('Error updating driver details:', err.message);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
 // Create new shipment
 const createShipment = async (req, res) => {
   try {
@@ -124,6 +186,7 @@ const createShipment = async (req, res) => {
 
     let shipmentData = {
       shipmentId,
+      barcode: shipmentId,
       notes: notes || ''
     };
 
@@ -756,11 +819,332 @@ const updateCustomerWallet = async (req, res) => {
   }
 };
 
+// Get all available order statuses
+const getOrderStatuses = async (req, res) => {
+  try {
+    // Try to get statuses from database first
+    let statuses = [];
+    try {
+      const statusDocs = await Status.find({ type: 'order', isActive: true }).sort({ sortOrder: 1, name: 1 });
+      statuses = statusDocs.map(s => s.name);
+    } catch (dbErr) {
+      console.log('Could not fetch from database, using fallback');
+    }
+
+    // Fallback to hardcoded statuses if database is empty or fails
+    if (statuses.length === 0) {
+      statuses = [
+        'Pending',
+        'Picked Up',
+        'In Transit',
+        'Inter Hub',
+        'Arrived at Hub',
+        'Out For Delivery',
+        'Delivered',
+        'Failed Delivery',
+        'Failed Collection',
+        'Pending Delivery',
+        'Pending Collection',
+        'Collected',
+        'Cancelled',
+        'Reschedule'
+      ];
+    }
+    
+    res.status(200).json({ statuses });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// Update order status
+const updateOrderStatus = async (req, res) => {
+  const { orderId, status } = req.body;
+
+  if (!orderId || !status) {
+    return res.status(400).json({ message: 'orderId and status are required' });
+  }
+
+  // Try to get valid order statuses from database
+  let allowedStatuses = [
+    'Pending',
+    'Picked Up',
+    'In Transit',
+    'Inter Hub',
+    'Arrived at Hub',
+    'Out For Delivery',
+    'Delivered',
+    'Failed Delivery',
+    'Failed Collection',
+    'Pending Delivery',
+    'Pending Collection',
+    'Collected',
+    'Cancelled',
+    'Reschedule'
+  ]; // fallback
+  
+  try {
+    const statusDocs = await Status.find({ type: 'order', isActive: true });
+    if (statusDocs.length > 0) {
+      allowedStatuses = statusDocs.map(s => s.name);
+    }
+  } catch (dbErr) {
+    console.log('Could not fetch order statuses from database, using fallback');
+  }
+
+  if (!allowedStatuses.includes(status)) {
+    return res.status(400).json({ message: `Invalid status. Allowed statuses: ${allowedStatuses.join(', ')}` });
+  }
+
+  try {
+    const order = await Order.findOneAndUpdate(
+      { orderId },
+      { status },
+      { new: true }
+    );
+
+    if (!order) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    res.status(200).json({
+      message: `Order status updated to ${status} successfully`,
+      order
+    });
+  } catch (err) {
+    console.error('Update Order Status Error:', err);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// Create custom order status (if needed in future)
+const createCustomStatus = async (req, res) => {
+  const { statusName, description } = req.body;
+
+  if (!statusName) {
+    return res.status(400).json({ message: 'statusName is required' });
+  }
+
+  try {
+    // This could be expanded to store custom statuses in a database
+    // For now, return the standard statuses plus the custom one
+    const standardStatuses = [
+      'Pending',
+      'Picked Up',
+      'In Transit',
+      'Inter Hub',
+      'Arrived at Hub',
+      'Out For Delivery',
+      'Delivered',
+      'Failed Delivery',
+      'Failed Collection',
+      'Pending Delivery',
+      'Pending Collection',
+      'Collected',
+      'Cancelled',
+      'Reschedule'
+    ];
+
+    if (standardStatuses.includes(statusName)) {
+      return res.status(400).json({ message: 'Status already exists in standard statuses' });
+    }
+
+    // For now, just return a message - in future you might want to store custom statuses
+    res.status(200).json({
+      message: 'Custom status creation would be implemented with a database table for custom statuses',
+      customStatus: { statusName, description },
+      note: 'Currently only standard statuses are supported'
+    });
+  } catch (err) {
+    console.error('Create Custom Status Error:', err);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// ============================================
+// NEW: Dynamic Status Management CRUD Operations
+// ============================================
+
+// Get all statuses (filtered by type if provided)
+const getAllStatuses = async (req, res) => {
+  try {
+    const { type } = req.query;
+    const filter = type ? { type, isActive: true } : { isActive: true };
+    const statuses = await Status.find(filter).sort({ sortOrder: 1, name: 1 });
+    res.status(200).json({ statuses });
+  } catch (err) {
+    console.error('Get All Statuses Error:', err);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// Get status by ID
+const getStatusById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const status = await Status.findById(id);
+    if (!status) {
+      return res.status(404).json({ message: 'Status not found' });
+    }
+    res.status(200).json({ status });
+  } catch (err) {
+    console.error('Get Status By ID Error:', err);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// Create new status
+const createStatus = async (req, res) => {
+  const { name, type, description, color, sortOrder } = req.body;
+
+  if (!name || !type) {
+    return res.status(400).json({ message: 'Name and type are required' });
+  }
+
+  if (!['order', 'driver'].includes(type)) {
+    return res.status(400).json({ message: 'Type must be either "order" or "driver"' });
+  }
+
+  try {
+    // Check if status with same name and type already exists
+    const existingStatus = await Status.findOne({ name, type });
+    if (existingStatus) {
+      return res.status(400).json({ message: 'Status with this name already exists for this type' });
+    }
+
+    const status = new Status({
+      name,
+      type,
+      description,
+      color: color || 'secondary',
+      sortOrder: sortOrder || 0
+    });
+
+    await status.save();
+    res.status(201).json({ message: 'Status created successfully', status });
+  } catch (err) {
+    console.error('Create Status Error:', err);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// Update status
+const updateStatus = async (req, res) => {
+  const { id } = req.params;
+  const { name, description, color, isActive, sortOrder } = req.body;
+
+  try {
+    const status = await Status.findById(id);
+    if (!status) {
+      return res.status(404).json({ message: 'Status not found' });
+    }
+
+    // Don't allow changing the type
+    if (req.body.type && req.body.type !== status.type) {
+      return res.status(400).json({ message: 'Cannot change status type' });
+    }
+
+    // Check if new name conflicts with existing status
+    if (name && name !== status.name) {
+      const existingStatus = await Status.findOne({ name, type: status.type });
+      if (existingStatus) {
+        return res.status(400).json({ message: 'Status with this name already exists for this type' });
+      }
+    }
+
+    // Update fields
+    if (name) status.name = name;
+    if (description !== undefined) status.description = description;
+    if (color) status.color = color;
+    if (isActive !== undefined) status.isActive = isActive;
+    if (sortOrder !== undefined) status.sortOrder = sortOrder;
+
+    await status.save();
+    res.status(200).json({ message: 'Status updated successfully', status });
+  } catch (err) {
+    console.error('Update Status Error:', err);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// Delete status
+const deleteStatus = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const status = await Status.findById(id);
+    if (!status) {
+      return res.status(404).json({ message: 'Status not found' });
+    }
+
+    // Don't allow deletion of default statuses
+    if (status.isDefault) {
+      return res.status(400).json({ message: 'Cannot delete default status' });
+    }
+
+    await Status.findByIdAndDelete(id);
+    res.status(200).json({ message: 'Status deleted successfully' });
+  } catch (err) {
+    console.error('Delete Status Error:', err);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// Initialize default statuses
+const initializeDefaultStatuses = async (req, res) => {
+  try {
+    const defaultOrderStatuses = [
+      { name: 'Pending', type: 'order', color: 'warning', sortOrder: 1, isDefault: true },
+      { name: 'Picked Up', type: 'order', color: 'primary', sortOrder: 2, isDefault: true },
+      { name: 'In Transit', type: 'order', color: 'primary', sortOrder: 3, isDefault: true },
+      { name: 'Inter Hub', type: 'order', color: 'info', sortOrder: 4, isDefault: true },
+      { name: 'Arrived at Hub', type: 'order', color: 'info', sortOrder: 5, isDefault: true },
+      { name: 'Out For Delivery', type: 'order', color: 'primary', sortOrder: 6, isDefault: true },
+      { name: 'Delivered', type: 'order', color: 'success', sortOrder: 7, isDefault: true },
+      { name: 'Failed Delivery', type: 'order', color: 'danger', sortOrder: 8, isDefault: true },
+      { name: 'Failed Collection', type: 'order', color: 'danger', sortOrder: 9, isDefault: true },
+      { name: 'Pending Delivery', type: 'order', color: 'warning', sortOrder: 10, isDefault: true },
+      { name: 'Pending Collection', type: 'order', color: 'warning', sortOrder: 11, isDefault: true },
+      { name: 'Collected', type: 'order', color: 'success', sortOrder: 12, isDefault: true },
+      { name: 'Cancelled', type: 'order', color: 'danger', sortOrder: 13, isDefault: true },
+      { name: 'Reschedule', type: 'order', color: 'secondary', sortOrder: 14, isDefault: true }
+    ];
+
+    const defaultDriverStatuses = [
+      { name: 'pending', type: 'driver', color: 'warning', sortOrder: 1, isDefault: true },
+      { name: 'approved', type: 'driver', color: 'success', sortOrder: 2, isDefault: true },
+      { name: 'rejected', type: 'driver', color: 'danger', sortOrder: 3, isDefault: true },
+      { name: 'active', type: 'driver', color: 'success', sortOrder: 4, isDefault: true },
+      { name: 'inactive', type: 'driver', color: 'secondary', sortOrder: 5, isDefault: true },
+      { name: 'suspended', type: 'driver', color: 'danger', sortOrder: 6, isDefault: true }
+    ];
+
+    let createdCount = 0;
+
+    for (const statusData of [...defaultOrderStatuses, ...defaultDriverStatuses]) {
+      const existing = await Status.findOne({ name: statusData.name, type: statusData.type });
+      if (!existing) {
+        await Status.create(statusData);
+        createdCount++;
+      }
+    }
+
+    res.status(200).json({ 
+      message: `Initialized ${createdCount} default statuses`,
+      createdCount 
+    });
+  } catch (err) {
+    console.error('Initialize Default Statuses Error:', err);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
 module.exports = {
   getPendingDrivers,
   getAcceptedDrivers,
   getAllDrivers,
   updateDriverStatus,
+  updateDriverDetails,
   createShipment,
   getOrderDetails,
   getShipmentById,
@@ -775,5 +1159,14 @@ module.exports = {
   createCustomer,
   deleteDriver,
   updateCustomerStatus,
-  updateCustomerWallet
+  updateCustomerWallet,
+  getOrderStatuses,
+  updateOrderStatus,
+  createCustomStatus,
+  getAllStatuses,
+  getStatusById,
+  createStatus,
+  updateStatus,
+  deleteStatus,
+  initializeDefaultStatuses
 };

@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 const shipmentSchema = new mongoose.Schema({
   shipmentId: { type: String, required: true, unique: true },
+  barcode: { type: String, unique: true, sparse: true, index: true },
   customer: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -119,11 +120,20 @@ const shipmentSchema = new mongoose.Schema({
     enum: [
       'Order Created',
       'Pending Collection',
+      'Pending Delivery',
       'Driver Assigned',
       'Picked Up',
       'In Transit',
-      'Inter branch Transit',
+      'Inter Hub',
+      'Arrived at Hub',
+      'Out For Delivery',
       'Delivered',
+      'Failed Delivery',
+      'Failed Collection',
+      'Collected',
+      'Cancelled',
+      'Reschedule',
+      'Inter branch Transit',
       'Delivery Failed',
       'Rescheduled',
       'Return to Sender',
@@ -133,7 +143,10 @@ const shipmentSchema = new mongoose.Schema({
       'Parcel in Sorting Facility',
       'Out for Delivery',
       'On Hold',
-      'Awaiting Payment'
+      'Awaiting Payment',
+      'Shipping',
+      'Assigned',
+      'Pending'
     ],
     default: 'Order Created'
   },
@@ -147,10 +160,43 @@ const shipmentSchema = new mongoose.Schema({
   orders: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Order' }],
   routeId: { type: String },
   trackingNumber: { type: String },
-  driverName: { type: String, default: "Unassigned" }
+  driverName: { type: String, default: "Unassigned" },
+
+  // Proof of Delivery fields
+  podSignature: { type: String },
+  podPhoto: { type: String },
+  podReceiverName: { type: String },
+  podSignedAt: { type: Date },
+  podCompleted: { type: Boolean, default: false },
+  podMethod: { type: String },
+  podLocation: {
+    latitude: Number,
+    longitude: Number,
+    address: String
+  },
+  podData: { type: mongoose.Schema.Types.Mixed },
+  
+  // Additional fields for compatibility
+  recipientName: { type: String },
+  recipientPhone: { type: String },
+  recipientAddress: { type: String },
+  pickupAddress: { type: String },
+  senderAddress: { type: String },
+  estimatedDelivery: { type: String },
+  deliveryDate: { type: String },
+  specialInstructions: { type: String },
+  description: { type: String },
+  weight: { type: String },
+  dimensions: { type: String },
+  latitude: { type: Number },
+  longitude: { type: Number },
+  trackingNumber: { type: String },
+  customerName: { type: String },
+  customerPhone: { type: String },
+  address: { type: String }
 },
   {
-    timestamps: true  //  Enables createdAt and updatedAt automatically
+    timestamps: true
   });
 
 module.exports = mongoose.model('Shipment', shipmentSchema);

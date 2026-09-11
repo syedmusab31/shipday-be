@@ -33,6 +33,10 @@ const tempDriverSchema = new mongoose.Schema({
     uppercase: true,
     trim: true
   },
+  driverImage: {
+    type: String,
+    required: false
+  },
   idProof: {
     type: String,
     required: true

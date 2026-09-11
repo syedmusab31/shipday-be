@@ -29,8 +29,9 @@ const OrderSchema = new mongoose.Schema({
   cost: Number,
   status: {
     type: String,
-    enum: ['Pending', 'Failed', 'Delivered'],
-    default: 'Pending',
+    default: 'Pending'
+    // Note: Status validation is now handled dynamically via the Status model
+    // Removed enum constraint to allow dynamic statuses from database
   },
   createdAt: {
     type: Date,
