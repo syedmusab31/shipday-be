@@ -16,20 +16,19 @@ jobs:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           password: ${{ secrets.PASSWORD }}
-          command_timeout: 10m
+          command_timeout: 5m
           script: |
             export PATH=$PATH:/usr/local/bin:/usr/bin
             cd /www/wwwroot/backend
             
-            # Reset and pull latest code
+            # Clean local git changes and pull
             git reset --hard origin/main
             git pull origin main
             
-            # Production dependencies install (Fast & Lightweight)
-            npm install --production --no-audit --no-fund
+            # Install production dependencies cleanly
+            npm install --omit=dev --no-audit --no-fund
             
-            # Restart Node server cleanly
-            nohup pkill -f "node /www/wwwroot/backend/server.js" > /dev/null 2>&1 &
-            sleep 2
+            # Trigger process restart safely
+            pkill -f "node /www/wwwroot/backend/server.js" || true
             
-            echo "Backend successfully deployed!"
+            echo "Backend successfully deployed and restarted!"
