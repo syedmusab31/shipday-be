@@ -29,7 +29,7 @@ dist/
 build/
 
 # Uploads (if you want to exclude user uploads)
-# uploads/
+uploads/
 
 # Firebase private key
 firebase-adminsdk-*.json
@@ -39,3 +39,6 @@ firebase-adminsdk-*.json
 
 # Railway
 .railway
+
+#zip files
+*.zip

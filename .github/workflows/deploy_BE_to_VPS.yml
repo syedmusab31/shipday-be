@@ -1,0 +1,35 @@
+name: Deploy Backend to VPS
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          password: ${{ secrets.PASSWORD }}
+          command_timeout: 15m
+          script: |
+            export PATH=$PATH:/usr/local/bin:/usr/bin
+            cd /www/wwwroot/backend
+            
+            # Safe code update using reset & pull
+            git reset --hard origin/main
+            git pull origin main || true
+            
+            # Install packages safely
+            npm ci --prefer-offline || npm install
+            
+            # Restart backend process without hanging the SSH session
+            nohup pkill -f "node /www/wwwroot/backend/server.js" > /dev/null 2>&1 &
+            sleep 2
+            
+            echo "Backend successfully updated and process restart triggered!"
