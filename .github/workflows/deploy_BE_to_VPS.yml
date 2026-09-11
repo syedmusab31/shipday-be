@@ -19,18 +19,16 @@ jobs:
           command_timeout: 10m
           script: |
             export PATH=$PATH:/usr/local/bin:/usr/bin
-            export NODE_OPTIONS="--max-old-space-size=512"
             cd /www/wwwroot/backend
             
             # Reset local changes and pull latest code
             git reset --hard origin/main
             git pull origin main
             
-            # Fast & Low Memory Package Sync
-            npm install --omit=dev --no-audit --no-fund --prefer-offline
+            # Install dependencies without running post-install scripts
+            npm install --omit=dev --no-audit --no-fund --ignore-scripts
             
-            # Safe Process Reload via aaPanel / PM2 / pkill
-            nohup bash -c "pkill -9 -f 'node /www/wwwroot/backend/server.js' || true" > /dev/null 2>&1 &
-            sleep 2
+            # Safe process restart using detached subshell
+            (pkill -f "server.js" || true) < /dev/null > /dev/null 2>&1 &
             
-            echo "Backend successfully deployed!"
+            echo "Backend code pulled and restart command dispatched successfully!"
