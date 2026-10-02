@@ -649,20 +649,73 @@ const downloadPOD = async (req, res) => {
 
 // Create new customer manually from dashboard
 const createCustomer = async (req, res) => {
-  const { fullName, email, password, companyName, phone, address } = req.body;
+  const {
+    fullName,
+    email,
+    password,
+    companyName,
+    phone,
+    address,
+    accountType,
+    idNumber,
+    accountOwnerIdNumber,
+    businessRegistrationNumber,
+    status
+  } = req.body;
   const User = require('../models/User');
   const bcrypt = require('bcryptjs');
 
+  const normalizeValue = (value) => value === undefined || value === null ? undefined : String(value).trim();
+  const normalizedAccountType = accountType === 'Business' ? 'Business' : 'Personal';
+  if (status !== undefined && !['Active', 'Disabled'].includes(status)) {
+    return res.status(400).json({ message: 'Customer status must be Active or Disabled' });
+  }
+  const normalizedStatus = status || 'Active';
+  const normalizedIdNumber = normalizedAccountType === 'Personal' ? normalizeValue(idNumber) : undefined;
+  const normalizedBusinessRegistrationNumber = normalizedAccountType === 'Business' ? normalizeValue(businessRegistrationNumber) : undefined;
+  const normalizedAccountOwnerIdNumber = normalizedAccountType === 'Business' ? normalizeValue(accountOwnerIdNumber) : undefined;
 
+  if (normalizedAccountType === 'Personal' && (!fullName || !email || !password || !normalizedIdNumber)) {
+    return res.status(400).json({ message: 'Full Name, Email, Password, and ID Number are required for personal accounts' });
+  }
 
-  if (!fullName || !email || !password) {
-    return res.status(400).json({ message: 'Full Name, Email, and Password are required' });
+  if (normalizedAccountType === 'Business' && (!fullName || !companyName || !email || !password || !normalizedBusinessRegistrationNumber || !normalizedAccountOwnerIdNumber)) {
+    return res.status(400).json({ message: 'Full Name, Company Name, Email, Password, Business Registration Number, and ID Number of the account holder are required for business accounts' });
+  }
+
+  const identityNumber = normalizedAccountType === 'Personal' ? normalizedIdNumber : normalizedAccountOwnerIdNumber;
+  if (identityNumber && !/^\d{3}$/.test(identityNumber)) {
+    return res.status(400).json({ message: 'ID number must contain exactly 3 digits' });
   }
 
   try {
-    const existingUser = await User.findOne({ email: email.toLowerCase() });
+    const normalizedEmail = String(email || '').toLowerCase().trim();
+    if (!normalizedEmail) {
+      return res.status(400).json({ message: 'Valid email is required' });
+    }
+
+    const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) {
       return res.status(400).json({ message: 'User already exists with this email' });
+    }
+
+    if (normalizedAccountType === 'Personal') {
+      const duplicateId = await User.findOne({ idNumber: normalizedIdNumber });
+      if (duplicateId) {
+        return res.status(400).json({ message: 'This ID number is already linked to an account' });
+      }
+    }
+
+    if (normalizedAccountType === 'Business') {
+      const duplicateBusinessReg = await User.findOne({ businessRegistrationNumber: normalizedBusinessRegistrationNumber });
+      if (duplicateBusinessReg) {
+        return res.status(400).json({ message: 'This business registration number already has an account' });
+      }
+
+      const duplicateAccountOwner = await User.findOne({ accountOwnerIdNumber: normalizedAccountOwnerIdNumber });
+      if (duplicateAccountOwner) {
+        return res.status(400).json({ message: 'This ID number is already linked to another account opening request' });
+      }
     }
 
     // Generate Customer ID
@@ -676,14 +729,15 @@ const createCustomer = async (req, res) => {
     const customerId = await generateCustomerId();
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create User (Customer)
-    const newUser = new User({
+    const userPayload = {
       customerId,
-      email: email.toLowerCase(),
+      email: normalizedEmail,
       password: hashedPassword,
+      accountType: normalizedAccountType,
       fullName,
-      companyName,
+      companyName: normalizedAccountType === 'Business' ? companyName : '',
       phone: phone || '',
+      status: normalizedStatus,
       role: 'Customer',
       address: address || {
         street: '',
@@ -693,9 +747,22 @@ const createCustomer = async (req, res) => {
         postalCode: '',
         country: 'South Africa'
       }
-    });
+    };
 
-    // Also update legacy location for backward compatibility if needed
+    if (normalizedAccountType === 'Personal' && normalizedIdNumber) {
+      userPayload.idNumber = normalizedIdNumber;
+    }
+
+    if (normalizedAccountType === 'Business' && normalizedBusinessRegistrationNumber) {
+      userPayload.businessRegistrationNumber = normalizedBusinessRegistrationNumber;
+    }
+
+    if (normalizedAccountType === 'Business' && normalizedAccountOwnerIdNumber) {
+      userPayload.accountOwnerIdNumber = normalizedAccountOwnerIdNumber;
+    }
+
+    const newUser = new User(userPayload);
+
     if (address) {
       newUser.location = {
         address: `${address.street || ''}, ${address.city || ''}, ${address.province || ''}, ${address.country || ''}`.replace(/^, |, $/, '').replace(/, , /g, ', '),
@@ -708,7 +775,7 @@ const createCustomer = async (req, res) => {
       message: 'Customer created successfully',
       customer: {
         id: newUser.customerId,
-        name: newUser.fullName,
+        name: newUser.fullName || newUser.companyName,
         email: newUser.email,
         company: newUser.companyName,
         role: newUser.role
@@ -716,6 +783,11 @@ const createCustomer = async (req, res) => {
     });
 
   } catch (err) {
+    if (err.code === 11000) {
+      const duplicateField = Object.keys(err.keyPattern || {})[0];
+      return res.status(400).json({ message: `This ${duplicateField.replace(/([A-Z])/g, ' $1').trim()} is already in use` });
+    }
+
     console.error("Create Customer Error:", err);
     res.status(500).json({ message: 'Server error', error: err.message });
   }
@@ -774,26 +846,31 @@ const updateCustomerWallet = async (req, res) => {
   const User = require('../models/User');
   const { v4: uuidv4 } = require('uuid');
 
-  if (!userId || amount === undefined) {
+  const numericAmount = Number(amount);
+  const supportingDocument = req.file ? req.file.path.replace(/\\/g, '/') : null;
+
+  if (!userId || amount === undefined || Number.isNaN(numericAmount)) {
     return res.status(400).json({ message: 'User ID and amount are required' });
   }
 
   try {
-    const type = amount >= 0 ? 'credit' : 'debit';
-    const absAmount = Math.abs(amount);
+    const type = numericAmount >= 0 ? 'credit' : 'debit';
+    const absAmount = Math.abs(numericAmount);
+    const transactionDescription = description || 'Admin Adjustment';
+
+    const walletTransaction = {
+      type,
+      amount: absAmount,
+      description: transactionDescription,
+      date: new Date(),
+      supportingDocument
+    };
 
     const updatedWallet = await Wallet.findOneAndUpdate(
       { userId },
       {
-        $inc: { balance: amount },
-        $push: {
-          transactions: {
-            type: type,
-            amount: absAmount,
-            description: description || 'Admin Adjustment',
-            date: new Date()
-          }
-        }
+        $inc: { balance: numericAmount },
+        $push: { transactions: walletTransaction }
       },
       { new: true, upsert: true }
     );
@@ -809,8 +886,9 @@ const updateCustomerWallet = async (req, res) => {
       amount: absAmount,
       method: 'Wallet',
       status: 'Completed',
-      orderId: description || 'Admin Adjustment',
-      date: new Date()
+      orderId: transactionDescription,
+      date: new Date(),
+      supportingDocument
     });
 
     res.status(200).json({ message: 'Wallet updated successfully', wallet: updatedWallet });

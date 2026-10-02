@@ -2,7 +2,8 @@ const express = require('express');
 const router = express.Router();
 const authMiddleware = require("../middleware/authMiddleware");
 const { verifyAdmin, verifySuperAdmin } = require("../middleware/roleMiddleware");
-const { upload } = require('../middleware/upload');
+const { upload, walletSupportUpload } = require('../middleware/upload');
+const { getAllCustomers } = require('../controller/auth');
 
 const {
   getPendingDrivers,
@@ -36,9 +37,10 @@ const {
 } = require('../controller/admin');
 
 // Customer handling
+router.get('/customers', authMiddleware, verifyAdmin, getAllCustomers);
 router.post('/customers/create', authMiddleware, verifyAdmin, createCustomer);
-router.patch('/customers/status', authMiddleware, verifySuperAdmin, updateCustomerStatus);
-router.patch('/customers/wallet', authMiddleware, verifySuperAdmin, updateCustomerWallet);
+router.patch('/customers/status', authMiddleware, verifyAdmin, updateCustomerStatus);
+router.patch('/customers/wallet', authMiddleware, verifySuperAdmin, walletSupportUpload.single('supportingDocument'), updateCustomerWallet);
 
 // Driver routes
 router.get('/drivers/all', authMiddleware, verifyAdmin, getAllDrivers);

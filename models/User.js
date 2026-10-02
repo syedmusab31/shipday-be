@@ -27,8 +27,30 @@ const userSchema = new mongoose.Schema(
 
 
     // Profile fields
+    accountType: {
+      type: String,
+      enum: ['Personal', 'Business'],
+      default: 'Personal',
+    },
     companyName: String,
     fullName: String,
+    idNumber: {
+      type: String,
+      unique: true,
+      sparse: true,
+      match: /^\d{3}$/,
+    },
+    accountOwnerIdNumber: {
+      type: String,
+      unique: true,
+      sparse: true,
+      match: /^\d{3}$/,
+    },
+    businessRegistrationNumber: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
     nickName: String,
     dob: String,
     phone: String,

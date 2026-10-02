@@ -4,7 +4,8 @@ const transactionSchema = new mongoose.Schema({
   type: { type: String, enum: ['credit', 'debit'], required: true },
   amount: { type: Number, required: true },
   description: { type: String },
-  date: { type: Date, default: Date.now }
+  date: { type: Date, default: Date.now },
+  supportingDocument: { type: String, default: null }
 });
 
 const walletSchema = new mongoose.Schema({

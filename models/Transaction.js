@@ -32,6 +32,10 @@ const transactionSchema = new mongoose.Schema({
     enum: ["Completed", "Pending", "Failed", "completed", "pending", "failed"],
     default: "Pending",
   },
+  supportingDocument: {
+    type: String,
+    default: null,
+  },
 });
 
 module.exports = mongoose.model("Transaction", transactionSchema);

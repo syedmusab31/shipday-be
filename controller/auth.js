@@ -426,9 +426,11 @@ const getUserByEmail = async (req, res) => {
 //  Get all customers
 const getAllCustomers = async (req, res) => {
   try {
-    const users = await User.find();
+    const users = await User.find().select('customerId fullName email phone companyName status location address role idNumber accountOwnerIdNumber businessRegistrationNumber');
     const orders = await Order.find();
     const wallets = await Wallet.find();
+    const requesterRole = (req.user?.role || '').toLowerCase().replace(/\s/g, '');
+    const canSearchIdentity = requesterRole === 'admin' || requesterRole === 'superadmin';
 
     const enrichedUsers = users.map((user) => {
       const userOrders = orders.filter(
@@ -438,7 +440,7 @@ const getAllCustomers = async (req, res) => {
 
       const userWallet = wallets.find(w => w.userId && w.userId.toString() === user._id.toString());
 
-      return {
+      const customer = {
         id: user._id,
         customerId: user.customerId,
         fullName: user.fullName,
@@ -452,6 +454,13 @@ const getAllCustomers = async (req, res) => {
         totalOrders: userOrders.length,
         walletBalance: userWallet ? userWallet.balance : 0
       };
+
+      if (canSearchIdentity) {
+        customer.identityNumber = user.idNumber || user.accountOwnerIdNumber || '';
+        customer.businessRegistrationNumber = user.businessRegistrationNumber || '';
+      }
+
+      return customer;
     });
 
     res.status(200).json({ customers: enrichedUsers });
