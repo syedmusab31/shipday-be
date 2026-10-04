@@ -8,6 +8,7 @@ const {
   resetPassword,
   verifyCode,
   updateUserProfile,
+  completeProfileSetup,
   getUserByEmail,
   getAllCustomers,
   googleLogin,
@@ -36,6 +37,7 @@ router.post('/verification/verify', verifyCode);
 // User profile routes
 router.get('/profile', authMiddleware, getUserByEmail);
 router.patch('/profile', updateUserProfile);
+router.post('/profile/setup', authMiddleware, completeProfileSetup);
 
 // This matches the frontend call /api/user?email=... if mounted at /api
 // But frontend calls /api/user directly, while authRoutes is at /api/auth

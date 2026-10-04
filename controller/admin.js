@@ -3,6 +3,9 @@ const Notification = require('../models/Notification');
 const Shipment = require('../models/Shipment');
 const Order = require('../models/Order');
 const Status = require('../models/Status');
+const Pricing = require('../models/Pricing');
+const { calculateShipmentPricing } = require('../utils/shipmentPricing');
+const { refreshShipmentCustomerActivation } = require('../services/marketingActivationService');
 // Trigger server restart for logic update
 const { sendPushNotification } = require('../utils/pushNotification');
 const { sendShipmentStatusEmail } = require('../utils/shipmentEmailTemplates');
@@ -176,6 +179,7 @@ const createShipment = async (req, res) => {
     const {
       senderDetails, collectionDetails, deliveryDetails, parcelDetails, payment, // New Schema
       orderNumber, marketplaceName, numberOfBoxes, parcels, bookedBy, isFulfillment, // Fulfillment
+      selectedPackaging,
       senderName, senderPhone, receiverName, receiverPhone, start, end, parcelWeight, packageType, cost, eta, notes // Legacy
     } = req.body;
 
@@ -189,6 +193,29 @@ const createShipment = async (req, res) => {
       barcode: shipmentId,
       notes: notes || ''
     };
+
+    let pricingBreakdown = null;
+    let shipmentAmount = 0;
+
+    if (senderDetails && collectionDetails && deliveryDetails && parcelDetails) {
+      const pricing = await Pricing.findOne() || new Pricing();
+      const requestedPackaging = parcelDetails.packaging ?? selectedPackaging ?? [];
+
+      try {
+        pricingBreakdown = calculateShipmentPricing({
+          parcelDetails,
+          collectionDetails,
+          deliveryDetails,
+          pricing,
+          selectedPackaging: requestedPackaging,
+          fulfillmentAmount: isFulfillment ? payment?.amount ?? cost : undefined,
+        });
+      } catch (pricingError) {
+        return res.status(400).json({ message: pricingError.message });
+      }
+
+      shipmentAmount = pricingBreakdown.total;
+    }
 
     // Check if using new detailed schema
     if (senderDetails && collectionDetails && deliveryDetails && parcelDetails) {
@@ -206,7 +233,10 @@ const createShipment = async (req, res) => {
         senderDetails,
         collectionDetails,
         deliveryDetails,
-        parcelDetails,
+        parcelDetails: {
+          ...parcelDetails,
+          packaging: pricingBreakdown?.packaging || []
+        },
         orderNumber,
         marketplaceName,
         numberOfBoxes,
@@ -215,9 +245,15 @@ const createShipment = async (req, res) => {
         isFulfillment: !!isFulfillment,
         payment: {
           ...payment,
-          amount: payment?.amount || cost || 0,
-          status: 'pending'
+          amount: shipmentAmount,
+          status: isFulfillment ? (payment?.status || 'pending') : 'pending'
         },
+        pricingBreakdown: pricingBreakdown ? {
+          baseCost: pricingBreakdown.baseCost,
+          packagingCost: pricingBreakdown.packagingCost,
+          interProvinceFee: pricingBreakdown.interProvinceFee,
+          total: pricingBreakdown.total
+        } : undefined,
         // Auto-assign customer if creator is a Customer
         customer: (req.user && req.user.role === 'Customer') ? req.user._id : null,
 
@@ -230,7 +266,7 @@ const createShipment = async (req, res) => {
         end: deliveryDetails.address.city || 'Unknown',
         parcelWeight: parcelDetails.dimensions.weight || 1,
         packageType: parcelDetails.parcelType || 'parcel',
-        cost: payment?.amount || cost || 0,
+        cost: shipmentAmount,
         eta: today
       };
 
@@ -570,6 +606,10 @@ const updateShipment = async (req, res) => {
 
     if (!shipment) {
       return res.status(404).json({ message: 'Shipment not found' });
+    }
+
+    if (status === 'Delivered') {
+      await refreshShipmentCustomerActivation(shipment);
     }
 
     // Trigger automatic email notification if status was updated

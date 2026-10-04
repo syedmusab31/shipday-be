@@ -8,6 +8,7 @@ const Shipment = require('../models/Shipment');
 const sendMail = require("../utils/mail");
 const { sendShipmentStatusEmail } = require('../utils/shipmentEmailTemplates');
 const Token = require('../models/Token');
+const { refreshShipmentCustomerActivation } = require('../services/marketingActivationService');
 
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -511,6 +512,10 @@ const updateShipmentStatus = async (req, res) => {
       return res.status(404).json({ message: 'Shipment not found' });
     }
 
+    if (status === 'Delivered') {
+      await refreshShipmentCustomerActivation(shipment);
+    }
+
     // Trigger automatic email notification
     await sendShipmentStatusEmail(shipment, status);
 
@@ -617,6 +622,8 @@ const updateShipmentStatusWithPOD = async (req, res) => {
       return res.status(403).json({ message: 'Shipment not assigned to this driver' });
     }
     shipment = await Shipment.findByIdAndUpdate(shipment._id, updateFields, { new: true });
+
+    await refreshShipmentCustomerActivation(shipment);
 
     await sendShipmentStatusEmail(shipment, 'Delivered');
 

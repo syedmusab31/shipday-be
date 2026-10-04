@@ -75,6 +75,11 @@ const shipmentSchema = new mongoose.Schema({
       height: Number,
       weight: { type: Number }
     },
+    packaging: [{
+      id: String,
+      name: String,
+      price: { type: Number, default: 0 }
+    }],
     specialInstructions: String,
     satchelSize: { type: String, enum: ['none', 'A4', 'A3'], default: 'none' }
   },
@@ -85,6 +90,12 @@ const shipmentSchema = new mongoose.Schema({
     status: { type: String, enum: ['pending', 'paid', 'failed'], default: 'pending' },
     amount: { type: Number },
     transactionId: String
+  },
+  pricingBreakdown: {
+    baseCost: { type: Number, default: 0 },
+    packagingCost: { type: Number, default: 0 },
+    interProvinceFee: { type: Number, default: 0 },
+    total: { type: Number, default: 0 }
   },
 
   // Fulfillment & Marketplace Details

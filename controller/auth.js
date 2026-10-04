@@ -339,8 +339,21 @@ const resetPassword = async (req, res) => {
 
 //  Update user profile
 const updateUserProfile = async (req, res) => {
-  const { email, fullName, nickName, dob, phone, gender, image } = req.body;
-  const sanitizedEmail = validateEmail(email);
+  const {
+    email,
+    fullName,
+    nickName,
+    dob,
+    phone,
+    gender,
+    image,
+    accountType,
+    companyName,
+    idNumber,
+    accountOwnerIdNumber,
+    businessRegistrationNumber,
+  } = req.body;
+  const sanitizedEmail = validateEmail(email || req.user?.email);
 
   if (!sanitizedEmail) return res.status(400).json({ message: 'Valid email is required' });
 
@@ -348,12 +361,37 @@ const updateUserProfile = async (req, res) => {
     const user = await User.findOne({ email: sanitizedEmail });
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    user.fullName = fullName || user.fullName;
-    user.nickName = nickName || user.nickName;
-    user.dob = dob || user.dob;
-    user.phone = phone || user.phone;
-    user.gender = gender || user.gender;
-    user.image = image || user.image;
+    if (accountType && ['Personal', 'Business'].includes(accountType)) {
+      user.accountType = accountType;
+    }
+
+    if (typeof fullName === 'string' && fullName.trim()) user.fullName = fullName.trim();
+    if (typeof nickName === 'string' && nickName.trim()) user.nickName = nickName.trim();
+    if (typeof companyName === 'string') user.companyName = companyName.trim();
+    if (typeof dob === 'string') user.dob = dob;
+    if (typeof phone === 'string') user.phone = phone;
+    if (typeof gender === 'string') user.gender = gender;
+    if (typeof image === 'string') user.image = image;
+
+    if (typeof idNumber === 'string') {
+      const normalizedIdNumber = idNumber.trim();
+      if (normalizedIdNumber && !/^\d{3}$/.test(normalizedIdNumber)) {
+        return res.status(400).json({ message: 'ID number must contain exactly 3 digits' });
+      }
+      user.idNumber = normalizedIdNumber || user.idNumber;
+    }
+
+    if (typeof accountOwnerIdNumber === 'string') {
+      const normalizedOwnerId = accountOwnerIdNumber.trim();
+      if (normalizedOwnerId && !/^\d{3}$/.test(normalizedOwnerId)) {
+        return res.status(400).json({ message: 'Account holder ID number must contain exactly 3 digits' });
+      }
+      user.accountOwnerIdNumber = normalizedOwnerId || user.accountOwnerIdNumber;
+    }
+
+    if (typeof businessRegistrationNumber === 'string') {
+      user.businessRegistrationNumber = businessRegistrationNumber.trim() || user.businessRegistrationNumber;
+    }
 
     await user.save();
     await createNotification(
@@ -366,6 +404,104 @@ const updateUserProfile = async (req, res) => {
   } catch (err) {
     console.error('Update profile error:', err);
     res.status(500).json({ message: 'Server error while updating profile' });
+  }
+};
+
+const generateAutoIdNumber = async () => {
+  for (let attempt = 0; attempt < 1000; attempt += 1) {
+    const candidate = String(Math.floor(100 + Math.random() * 900));
+    const existing = await User.findOne({ idNumber: candidate });
+    if (!existing) {
+      return candidate;
+    }
+  }
+
+  throw new Error('Unable to generate a unique ID number');
+};
+
+const completeProfileSetup = async (req, res) => {
+  const userId = req.user?.id || req.body.userId;
+  const {
+    accountType,
+    fullName,
+    companyName,
+    businessRegistrationNumber,
+    idNumber,
+  } = req.body;
+
+  if (!userId) {
+    return res.status(401).json({ message: 'User session is required to complete setup' });
+  }
+
+  const normalizedAccountType = accountType === 'Business' ? 'Business' : 'Personal';
+  const trimmedFullName = String(fullName || '').trim();
+  const trimmedCompanyName = String(companyName || '').trim();
+  const trimmedBusinessRegistrationNumber = businessRegistrationNumber === undefined || businessRegistrationNumber === null ? '' : String(businessRegistrationNumber).trim();
+
+  if (!trimmedFullName) {
+    return res.status(400).json({ message: 'Full name is required' });
+  }
+
+  if (normalizedAccountType === 'Business') {
+    if (!trimmedCompanyName) {
+      return res.status(400).json({ message: 'Company name is required for business accounts' });
+    }
+    if (!trimmedBusinessRegistrationNumber) {
+      return res.status(400).json({ message: 'Business registration number is required' });
+    }
+  }
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    if (normalizedAccountType === 'Business') {
+      const duplicateBusinessReg = await User.findOne({ businessRegistrationNumber: trimmedBusinessRegistrationNumber, _id: { $ne: userId } });
+      if (duplicateBusinessReg) {
+        return res.status(400).json({ message: 'This business registration number already has an account' });
+      }
+    }
+
+    user.accountType = normalizedAccountType;
+    user.fullName = trimmedFullName;
+    user.companyName = normalizedAccountType === 'Business' ? trimmedCompanyName : '';
+    user.businessRegistrationNumber = normalizedAccountType === 'Business' ? trimmedBusinessRegistrationNumber : '';
+    user.accountOwnerIdNumber = '';
+
+    if (normalizedAccountType === 'Personal') {
+      let generatedIdNumber = idNumber && /^\d{3}$/.test(String(idNumber).trim()) ? String(idNumber).trim() : user.idNumber;
+      if (!generatedIdNumber || !/^\d{3}$/.test(generatedIdNumber)) {
+        generatedIdNumber = await generateAutoIdNumber();
+      }
+
+      const duplicateId = await User.findOne({ idNumber: generatedIdNumber, _id: { $ne: userId } });
+      if (duplicateId) {
+        generatedIdNumber = await generateAutoIdNumber();
+      }
+
+      user.idNumber = generatedIdNumber;
+    } else {
+      user.idNumber = '';
+    }
+
+    await user.save();
+
+    res.status(200).json({
+      message: 'Account setup complete',
+      user: {
+        email: user.email,
+        fullName: user.fullName,
+        customerId: user.customerId,
+        accountType: user.accountType,
+        companyName: user.companyName,
+        idNumber: user.idNumber || '',
+      }
+    });
+  } catch (err) {
+    console.error('Complete profile setup error:', err);
+    res.status(500).json({ message: 'Server error while setting up account' });
   }
 };
 
@@ -671,16 +807,17 @@ module.exports = {
   registerUser,
   createAdminUser,
   deleteUser,
-  updateUserByAdmin, // Exported
+  updateUserByAdmin,
   loginUser,
   logoutUser,
   resetPassword,
   updateUserProfile,
+  completeProfileSetup,
   saveUserLocation,
   getUserByEmail,
   getAllCustomers,
-  getCustomerById, // Existing function
-  getUserById, // New function by _id
+  getCustomerById,
+  getUserById,
   googleLogin,
   createNotification,
 };

@@ -1,5 +1,39 @@
 // utils/mail.js
 const nodemailer = require("nodemailer");
+const fs = require('fs');
+const path = require('path');
+
+const writeVerificationCodeToTempFile = (to, code) => {
+  try {
+    const logPath = path.join(__dirname, '../temp_email.txt');
+    const logContent = `[${new Date().toISOString()}] To: ${to} | Code: ${code}\n`;
+    fs.appendFileSync(logPath, logContent);
+    return true;
+  } catch (fsErr) {
+    console.error("Failed to write to temp_email.txt:", fsErr.message);
+    return false;
+  }
+};
+
+const extractVerificationCode = (text) => {
+  if (!text || typeof text !== 'string') return null;
+
+  const patterns = [
+    /verification code is:\s*([A-Z0-9]+)/i,
+    /code is:\s*([A-Z0-9]+)/i,
+    /code:\s*([A-Z0-9]+)/i,
+    /Your verification code is:\s*([A-Z0-9]+)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match && match[1]) {
+      return match[1].toUpperCase();
+    }
+  }
+
+  return null;
+};
 
 /**
  * Mail utility using ShipDay email service
@@ -23,6 +57,13 @@ const sendMail = async (to, subject, text, html = null) => {
     greetingTimeout: 60000,
   });
 
+  const isVerification = (subject || '').toLowerCase().includes('verification');
+  const verificationCode = extractVerificationCode(text);
+
+  if (isVerification && verificationCode) {
+    writeVerificationCodeToTempFile(to, verificationCode);
+  }
+
   try {
     const mailOptions = {
       from: `"ShipDay" <${process.env.FROM_EMAIL || process.env.NOREPLY_EMAIL || 'noreply@shipday.co.za'}>`,
@@ -39,10 +80,8 @@ const sendMail = async (to, subject, text, html = null) => {
     console.error("❌ Email sending failed:", error.message);
 
     // Fallback for Development: Log to console and file
-    const isVerification = subject.toLowerCase().includes("verification");
     if (isVerification) {
-      const codeMatch = text.match(/code is: (\w+)/);
-      const code = codeMatch ? codeMatch[1] : "UNKNOWN";
+      const code = verificationCode || "UNKNOWN";
 
       console.log("\n--- DEVELOPMENT FALLBACK ---");
       console.log(`To: ${to}`);
@@ -50,19 +89,10 @@ const sendMail = async (to, subject, text, html = null) => {
       console.log(`VERIFICATION CODE: ${code}`);
       console.log("----------------------------\n");
 
-      // Also write to a local file for easy retrieval
-      try {
-        const fs = require('fs');
-        const path = require('path');
-        const logPath = path.join(__dirname, '../temp_email.txt');
-        const logContent = `[${new Date().toISOString()}] To: ${to} | Code: ${code}\n`;
-        fs.appendFileSync(logPath, logContent);
-      } catch (fsErr) {
-        console.error("Failed to write to temp_email.txt:", fsErr.message);
+      if (code !== 'UNKNOWN') {
+        writeVerificationCodeToTempFile(to, code);
       }
 
-      // Even if fallback works, we still throw to inform the controller
-      // but we add a specific flag or message
       throw new Error(`SMTP_FAIL_FALLBACK_OK:${code}`);
     }
 

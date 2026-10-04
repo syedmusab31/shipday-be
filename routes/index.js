@@ -23,6 +23,7 @@ const walletRoutes = require('./walletRoutes');
 const driverRoutes = require('./driver');
 const pricingRoutes = require('./pricingRoutes');
 const contactRoutes = require('./contactRoutes');
+const marketingRoutes = require('./marketing');
 
 // Use routes
 router.get('/user', authController.getUserByEmail); // Fix for missing /api/user route
@@ -31,6 +32,7 @@ router.get('/customers', authController.getAllCustomers); // Fix for missing /ap
 router.use('/auth', authRoutes);
 router.use('/admin', adminRoutes);
 router.use('/pricing', pricingRoutes); // New Route
+router.use('/marketing', marketingRoutes);
 router.use('/shipments', shipmentsRoutes);
 router.use('/verification', verificationRoutes);
 router.use('/payments', paymentRoutes);

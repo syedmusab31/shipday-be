@@ -5,6 +5,7 @@ const Tracking = require('../models/tracking');
 const generateShipmentId = require('../utils/generateShipmentId');
 const isWithinRadius = require('../utils/isWithinRadius');
 const { sendShipmentStatusEmail } = require('../utils/shipmentEmailTemplates');
+const { refreshShipmentCustomerActivation } = require('../services/marketingActivationService');
 
 
 function getRandomStatus() {
@@ -204,6 +205,7 @@ exports.updateOrderStatus = async (req, res) => {
       shipment.status = "Delivered";
       shipment.deliveredAt = new Date();
       await shipment.save();
+      await refreshShipmentCustomerActivation(shipment);
 
       // Trigger automatic email notification
       await sendShipmentStatusEmail(shipment, "Delivered");
@@ -231,6 +233,7 @@ exports.syncShipmentStatuses = async (req, res) => {
       if (allDelivered && shipment.status !== "Delivered") {
         shipment.status = "Delivered";
         await shipment.save();
+        await refreshShipmentCustomerActivation(shipment);
 
       }
     }

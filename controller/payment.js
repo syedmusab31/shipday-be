@@ -12,6 +12,7 @@ const Wallet = require('../models/Wallet');
 const Transaction = require('../models/Transaction');
 const Shipment = require('../models/Shipment');
 const User = require('../models/User');
+const { refreshCustomerActivation } = require('../services/marketingActivationService');
 
 exports.createPaymentIntent = async (req, res) => {
   try {
@@ -158,6 +159,9 @@ exports.handlePayFastNotify = async (req, res) => {
         const parts = mPaymentId.split('-');
         const userId = parts[1];
 
+        const existingTopUp = await Transaction.findOne({ txnId: pfData.pf_payment_id });
+        if (existingTopUp) return res.status(200).send('OK');
+
         let wallet = await Wallet.findOne({ userId });
         if (!wallet) {
           wallet = new Wallet({ userId, balance: 0, transactions: [] });
@@ -189,6 +193,7 @@ exports.handlePayFastNotify = async (req, res) => {
           message: `R${amountGross} has been successfully credited to your wallet.`,
           type: 'transaction'
         });
+        await refreshCustomerActivation(userId);
 
       } else {
         // SHIPMENT PAYMENT FLOW
@@ -282,12 +287,15 @@ exports.confirmSandboxPayment = async (req, res) => {
       await Transaction.create({
         txnId: mockPfData.pf_payment_id,
         customer: 'Sandbox Tester',
+        userId,
         type: 'Credit',
         orderId: mPaymentId,
         amount: numAmount,
         method: 'PayFast',
         status: 'Completed'
       });
+
+      await refreshCustomerActivation(userId);
 
       await Notification.create({
         userId: userId,

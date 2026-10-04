@@ -83,6 +83,19 @@ const userSchema = new mongoose.Schema(
       enum: ['Active', 'Disabled'],
       default: 'Active',
     },
+    salesRepresentative: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Staff',
+      default: null,
+    },
+    marketingActivation: {
+      status: { type: String, enum: ['Not Activated', 'Activated'], default: 'Not Activated' },
+      topUpAmount: { type: Number, default: 0 },
+      successfulShipments: { type: Number, default: 0 },
+      activatedAt: { type: Date, default: null },
+      topUpRequirementMet: { type: Boolean, default: false },
+      shipmentRequirementMet: { type: Boolean, default: false },
+    },
   },
   { timestamps: true }
 );
