@@ -467,8 +467,8 @@ const completeProfileSetup = async (req, res) => {
     user.accountType = normalizedAccountType;
     user.fullName = trimmedFullName;
     user.companyName = normalizedAccountType === 'Business' ? trimmedCompanyName : '';
-    user.businessRegistrationNumber = normalizedAccountType === 'Business' ? trimmedBusinessRegistrationNumber : '';
-    user.accountOwnerIdNumber = '';
+    user.businessRegistrationNumber = normalizedAccountType === 'Business' ? trimmedBusinessRegistrationNumber : undefined;
+    user.accountOwnerIdNumber = undefined;
 
     if (normalizedAccountType === 'Personal') {
       let generatedIdNumber = idNumber && /^\d{3}$/.test(String(idNumber).trim()) ? String(idNumber).trim() : user.idNumber;
@@ -483,7 +483,7 @@ const completeProfileSetup = async (req, res) => {
 
       user.idNumber = generatedIdNumber;
     } else {
-      user.idNumber = '';
+      user.idNumber = undefined;
     }
 
     await user.save();
