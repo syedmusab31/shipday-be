@@ -200,15 +200,38 @@ const createShipment = async (req, res) => {
     if (senderDetails && collectionDetails && deliveryDetails && parcelDetails) {
       const pricing = await Pricing.findOne() || new Pricing();
       const requestedPackaging = parcelDetails.packaging ?? selectedPackaging ?? [];
+      const pricingDimensions = Array.isArray(parcels) && parcels.length > 0
+        ? parcels
+        : Array.isArray(parcelDetails.dimensions)
+          ? parcelDetails.dimensions
+          : parcelDetails.dimensions
+            ? [parcelDetails.dimensions]
+            : [];
+      const pricingParcelDetails = {
+        ...parcelDetails,
+        dimensions: pricingDimensions,
+      };
+      if (
+        !isFulfillment &&
+        numberOfBoxes !== undefined &&
+        pricingDimensions.length > 0 &&
+        Number(numberOfBoxes) !== pricingDimensions.length
+      ) {
+        return res.status(400).json({ message: 'numberOfBoxes must match the number of parcel dimensions' });
+      }
+      const shipmentBoxCount = isFulfillment
+        ? numberOfBoxes ?? Math.max(pricingDimensions.length, 1)
+        : Math.max(pricingDimensions.length, Number(numberOfBoxes) || 1);
 
       try {
         pricingBreakdown = calculateShipmentPricing({
-          parcelDetails,
+          parcelDetails: pricingParcelDetails,
           collectionDetails,
           deliveryDetails,
           pricing,
           selectedPackaging: requestedPackaging,
           fulfillmentAmount: isFulfillment ? payment?.amount ?? cost : undefined,
+          parcelCount: shipmentBoxCount,
         });
       } catch (pricingError) {
         return res.status(400).json({ message: pricingError.message });
@@ -231,16 +254,20 @@ const createShipment = async (req, res) => {
       shipmentData = {
         ...shipmentData,
         senderDetails,
-        collectionDetails,
+        collectionDetails: {
+          ...collectionDetails,
+          numberOfItems: shipmentBoxCount,
+        },
         deliveryDetails,
         parcelDetails: {
           ...parcelDetails,
+          dimensions: pricingDimensions[0] || parcelDetails.dimensions,
           packaging: pricingBreakdown?.packaging || []
         },
         orderNumber,
         marketplaceName,
-        numberOfBoxes,
-        parcels,
+        numberOfBoxes: shipmentBoxCount,
+        parcels: pricingDimensions,
         bookedBy,
         isFulfillment: !!isFulfillment,
         payment: {
@@ -252,6 +279,10 @@ const createShipment = async (req, res) => {
           baseCost: pricingBreakdown.baseCost,
           packagingCost: pricingBreakdown.packagingCost,
           interProvinceFee: pricingBreakdown.interProvinceFee,
+          oversizeBoxCount: pricingBreakdown.oversizeBoxCount,
+          oversizeFee: pricingBreakdown.oversizeFee,
+          additionalBoxCount: pricingBreakdown.additionalBoxCount,
+          additionalBoxFee: pricingBreakdown.additionalBoxFee,
           total: pricingBreakdown.total
         } : undefined,
         // Auto-assign customer if creator is a Customer

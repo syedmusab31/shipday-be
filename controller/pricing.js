@@ -1,6 +1,7 @@
 const Pricing = require('../models/Pricing');
 const { normalizePackagingOptions } = require('../utils/packagingPricing');
 const { normalizeInterProvinceFees } = require('../utils/interProvincePricing');
+const { normalizeParcelSurcharges } = require('../utils/parcelSurcharges');
 
 // Get current pricing configuration (Initialize if not exists)
 exports.getPricingConfig = async (req, res) => {
@@ -14,6 +15,7 @@ exports.getPricingConfig = async (req, res) => {
         }
 
         pricing.packagingOptions = normalizePackagingOptions(pricing.packagingOptions);
+        pricing.parcelSurcharges = normalizeParcelSurcharges(pricing.parcelSurcharges?.toObject?.() || pricing.parcelSurcharges);
 
         res.status(200).json(pricing);
     } catch (err) {
@@ -25,7 +27,7 @@ exports.getPricingConfig = async (req, res) => {
 // Update pricing configuration
 exports.updatePricingConfig = async (req, res) => {
     try {
-        const { economy, express, satchel, packagingOptions, interProvinceFees } = req.body;
+        const { economy, express, satchel, packagingOptions, interProvinceFees, parcelSurcharges } = req.body;
 
         // Upsert: update existing or create new
         // We strictly want only ONE pricing document.
@@ -43,6 +45,9 @@ exports.updatePricingConfig = async (req, res) => {
         if (interProvinceFees !== undefined) {
             pricing.interProvinceFees = normalizeInterProvinceFees(interProvinceFees);
         }
+        if (parcelSurcharges !== undefined) {
+            pricing.parcelSurcharges = normalizeParcelSurcharges(parcelSurcharges);
+        }
 
         pricing.updatedAt = Date.now();
         await pricing.save();
@@ -53,7 +58,8 @@ exports.updatePricingConfig = async (req, res) => {
         if (
             err.message?.startsWith('Packaging option') ||
             err.message?.startsWith('Packaging options') ||
-            err.message?.startsWith('Inter-province fee')
+            err.message?.startsWith('Inter-province fee') ||
+            err.message?.startsWith('Parcel surcharges')
         ) {
             return res.status(400).json({ message: err.message });
         }

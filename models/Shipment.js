@@ -8,6 +8,25 @@ const shipmentSchema = new mongoose.Schema({
     ref: 'User',
     default: null
   },
+  integrationCredential: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'IntegrationCredential',
+    default: null,
+    index: true
+  },
+  integrationQuoteId: { type: String, unique: true, sparse: true },
+  courierPartner: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'CourierPartner',
+    default: null,
+    index: true
+  },
+  courierPartnerQuoteId: { type: String, unique: true, sparse: true },
+  integrationParcelOperations: [{
+    keyHash: { type: String, required: true },
+    requestHash: { type: String, required: true },
+  }],
+  pricingSnapshot: { type: mongoose.Schema.Types.Mixed, default: null },
 
   // Sender Details
   senderDetails: {
@@ -86,7 +105,7 @@ const shipmentSchema = new mongoose.Schema({
 
   // Payment Details
   payment: {
-    method: { type: String, enum: ['ewallet', 'gateway', 'cod', 'payfast', 'fulfillment'], default: 'gateway' },
+    method: { type: String, enum: ['ewallet', 'gateway', 'cod', 'payfast', 'fulfillment', 'invoice'], default: 'gateway' },
     status: { type: String, enum: ['pending', 'paid', 'failed'], default: 'pending' },
     amount: { type: Number },
     transactionId: String
@@ -95,6 +114,10 @@ const shipmentSchema = new mongoose.Schema({
     baseCost: { type: Number, default: 0 },
     packagingCost: { type: Number, default: 0 },
     interProvinceFee: { type: Number, default: 0 },
+    oversizeBoxCount: { type: Number, default: 0 },
+    oversizeFee: { type: Number, default: 0 },
+    additionalBoxCount: { type: Number, default: 0 },
+    additionalBoxFee: { type: Number, default: 0 },
     total: { type: Number, default: 0 }
   },
 

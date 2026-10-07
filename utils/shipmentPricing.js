@@ -8,6 +8,7 @@ const {
   normalizeInterProvinceFees,
   getInterProvinceFee,
 } = require('./interProvincePricing');
+const { calculateParcelSurcharges } = require('./parcelSurcharges');
 
 function calculateShipmentPricing({
   parcelDetails,
@@ -16,6 +17,7 @@ function calculateShipmentPricing({
   pricing,
   selectedPackaging = [],
   fulfillmentAmount,
+  parcelCount,
 }) {
   const packagingOptions = pricing.packagingOptions || [];
   const packaging = resolvePackagingSelection(selectedPackaging, packagingOptions);
@@ -29,13 +31,26 @@ function calculateShipmentPricing({
     deliveryDetails?.address?.province,
     provinceFees
   );
-  const total = roundMoney(baseCost + packagingCost + interProvinceFee);
+  const dimensions = Array.isArray(parcelDetails.dimensions)
+    ? parcelDetails.dimensions
+    : parcelDetails.dimensions && typeof parcelDetails.dimensions === 'object'
+      ? [parcelDetails.dimensions]
+      : [];
+  const parcelSurcharges = calculateParcelSurcharges(
+    dimensions,
+    parcelCount ?? Math.max(dimensions.length, 1),
+    pricing.parcelSurcharges
+  );
+  const total = roundMoney(
+    baseCost + packagingCost + interProvinceFee + parcelSurcharges.total
+  );
 
   return {
     packaging,
     baseCost,
     packagingCost,
     interProvinceFee,
+    ...parcelSurcharges,
     total,
   };
 }

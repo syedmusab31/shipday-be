@@ -45,6 +45,12 @@ const pricingSchema = new mongoose.Schema({
         }],
         default: []
     },
+    parcelSurcharges: {
+        includedBoxes: { type: Number, min: 1, default: 1 },
+        additionalBoxFee: { type: Number, min: 0, default: 0 },
+        maxDimensionCm: { type: Number, min: 0, default: null },
+        oversizeFeePerBox: { type: Number, min: 0, default: 0 }
+    },
     updatedAt: { type: Date, default: Date.now }
 });
 

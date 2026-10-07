@@ -21,7 +21,7 @@ const transactionSchema = new mongoose.Schema({
   amount: Number,
   method: {
     type: String,
-    enum: ["UPI", "Bank Transfer", "Card", "Wallet", "COD", "PayFast", "cod", "payfast", "ewallet", "online"],
+    enum: ["UPI", "Bank Transfer", "Card", "Wallet", "COD", "PayFast", "Invoice", "cod", "payfast", "ewallet", "online"],
   },
   date: {
     type: Date,

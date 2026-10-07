@@ -4,6 +4,20 @@ const authMiddleware = require("../middleware/authMiddleware");
 const { verifyAdmin, verifySuperAdmin } = require("../middleware/roleMiddleware");
 const { upload, walletSupportUpload } = require('../middleware/upload');
 const { getAllCustomers } = require('../controller/auth');
+const courierIntegrationRoutes = require('./courierIntegration');
+const {
+  createCourierPartner,
+  listCourierPartners,
+  revokeCourierPartner,
+  rotateCourierPartnerKey,
+} = require('../controller/courierPartnerAdmin');
+const {
+  createStoreCredential,
+  listStoreCredentials,
+  revokeStoreCredential,
+  listInvoiceAccounts,
+  setInvoiceAccountStatus
+} = require('../controller/integrationAdmin');
 
 const {
   getPendingDrivers,
@@ -37,6 +51,17 @@ const {
 } = require('../controller/admin');
 
 // Customer handling
+router.use('/courier/the-courier-guy', courierIntegrationRoutes);
+router.get('/courier-partners', authMiddleware, verifyAdmin, listCourierPartners);
+router.post('/courier-partners', authMiddleware, verifyAdmin, createCourierPartner);
+router.post('/courier-partners/:partnerId/rotate-key', authMiddleware, verifyAdmin, rotateCourierPartnerKey);
+router.delete('/courier-partners/:partnerId', authMiddleware, verifyAdmin, revokeCourierPartner);
+router.get('/integrations/store-keys', authMiddleware, verifyAdmin, listStoreCredentials);
+router.post('/integrations/store-keys', authMiddleware, verifyAdmin, createStoreCredential);
+router.delete('/integrations/store-keys/:credentialId', authMiddleware, verifyAdmin, revokeStoreCredential);
+router.get('/invoice-accounts', authMiddleware, verifyAdmin, listInvoiceAccounts);
+router.patch('/invoice-accounts/:userId', authMiddleware, verifyAdmin, setInvoiceAccountStatus);
+
 router.get('/customers', authMiddleware, verifyAdmin, getAllCustomers);
 router.post('/customers/create', authMiddleware, verifyAdmin, createCustomer);
 router.patch('/customers/status', authMiddleware, verifyAdmin, updateCustomerStatus);

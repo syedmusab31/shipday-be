@@ -24,6 +24,8 @@ const driverRoutes = require('./driver');
 const pricingRoutes = require('./pricingRoutes');
 const contactRoutes = require('./contactRoutes');
 const marketingRoutes = require('./marketing');
+const storeIntegrationRoutes = require('./storeIntegration');
+const courierPartnerApiRoutes = require('./courierPartnerApi');
 
 // Use routes
 router.get('/user', authController.getUserByEmail); // Fix for missing /api/user route
@@ -32,6 +34,8 @@ router.get('/customers', authController.getAllCustomers); // Fix for missing /ap
 router.use('/auth', authRoutes);
 router.use('/admin', adminRoutes);
 router.use('/pricing', pricingRoutes); // New Route
+router.use('/v1/store', storeIntegrationRoutes);
+router.use('/v1/courier-partner', courierPartnerApiRoutes);
 router.use('/marketing', marketingRoutes);
 router.use('/shipments', shipmentsRoutes);
 router.use('/verification', verificationRoutes);

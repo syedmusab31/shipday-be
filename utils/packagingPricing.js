@@ -72,7 +72,13 @@ function calculateShipmentBasePrice(parcelDetails = {}, pricing = {}) {
 
   if (parcelType.includes('satchel') && satchelSize) {
     const amount = pricing.satchel?.[serviceType]?.[satchelSize];
-    return roundMoney(Number(amount) || 0);
+    const rawDimensions = parcelDetails.dimensions;
+    const dimensions = Array.isArray(rawDimensions)
+      ? rawDimensions
+      : rawDimensions && typeof rawDimensions === 'object'
+        ? [rawDimensions]
+        : [];
+    return roundMoney((Number(amount) || 0) * Math.max(dimensions.length, 1));
   }
 
   const config = pricing[serviceType] || {};
